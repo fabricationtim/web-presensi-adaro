@@ -848,4 +848,103 @@ export default function App() {
   }, []);
 
   const handleLogin = async (username, password) => {
-    if (!username || !password) { showToast({ msg: 'Kredensial wajib diisi', type: 'error' }); return;
+    if (!username || !password) { showToast({ msg: 'Kredensial wajib diisi', type: 'error' }); return; }
+    if (!firestoreUser) { showToast({ msg: 'Menunggu koneksi server...', type: 'error' }); return; }
+
+    try {
+      // 1. Cek Admin
+      const adminQ = query(getCollectionPath('admin_auth'));
+      const adminSnap = await getDocs(adminQ);
+      let isAdmin = false;
+      let adminProfilePic = null;
+
+      if (!adminSnap.empty) {
+        const adminData = adminSnap.docs[0].data();
+        if (username === adminData.username && password === adminData.password) {
+          isAdmin = true;
+          adminProfilePic = adminData.profilePic || null;
+        }
+      } else {
+        if (username === 'admin' && password === 'admin') isAdmin = true;
+      }
+
+      if (isAdmin) {
+        setCurrentUser({ username, role: 'admin', profilePic: adminProfilePic });
+        setAppState('admin');
+        return;
+      }
+
+      // 2. Cek Karyawan
+      const q = query(getCollectionPath('users'));
+      const querySnapshot = await getDocs(q);
+      let foundUser = null;
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.username === username && data.password === password) foundUser = { id: doc.id, ...data };
+      });
+
+      if (foundUser) {
+        setCurrentUser(foundUser);
+        setAppState('emp_dashboard');
+      } else {
+        showToast({ msg: 'Akses Ditolak: Username/Password salah!', type: 'error' });
+      }
+    } catch (err) {
+      showToast({ msg: 'Kesalahan saat verifikasi login.', type: 'error' });
+    }
+  };
+
+  const handleLogout = () => { setCurrentUser(null); setAppState('login'); };
+
+  if (isAuthChecking) return <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white"><Loader2 className="animate-spin text-blue-500 w-12 h-12 mb-4" /><p className="font-bold tracking-widest text-sm">MEMUAT SISTEM...</p></div>;
+
+  return (
+    <div className="font-sans antialiased text-slate-900 selection:bg-blue-200">
+      <Toast message={toastData?.msg} type={toastData?.type} onClose={() => setToastData(null)} />
+
+      {appState === 'login' && (
+        <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center p-6 relative overflow-hidden">
+          {/* Background Elements */}
+          <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+            <div className="absolute -top-[10%] -right-[10%] w-[50%] h-[50%] bg-blue-600/20 rounded-full blur-[100px]"></div>
+            <div className="absolute -bottom-[10%] -left-[10%] w-[50%] h-[50%] bg-indigo-600/20 rounded-full blur-[100px]"></div>
+          </div>
+
+          <div className="bg-white w-full max-w-sm p-10 rounded-[2.5rem] shadow-2xl relative z-10">
+            <div className="text-center mb-10">
+              <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-800 text-white rounded-[1.5rem] flex items-center justify-center mx-auto mb-6 shadow-lg shadow-blue-500/30 transform -rotate-6 hover:rotate-0 transition-transform"><Briefcase size={40} /></div>
+              <h1 className="text-3xl font-black text-slate-800 tracking-tight">Portal<br/>Kontraktor</h1>
+              <p className="text-slate-500 text-sm mt-2 font-medium uppercase tracking-wider">Akses Masuk Sistem</p>
+            </div>
+            
+            <form onSubmit={(e) => { e.preventDefault(); handleLogin(e.target.user.value, e.target.pass.value); }} className="space-y-6">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wider">ID Pengguna</label>
+                <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                  <input name="user" type="text" required className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 focus:border-blue-500 outline-none font-semibold text-slate-700 transition-colors" placeholder="Username" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wider">Kata Sandi</label>
+                <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                  <input name="pass" type="password" required className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl py-3.5 pl-12 pr-4 focus:border-blue-500 outline-none font-semibold text-slate-700 transition-colors" placeholder="••••••••" />
+                </div>
+              </div>
+              <button type="submit" className="w-full bg-slate-900 text-white font-black uppercase tracking-widest py-4 rounded-2xl hover:bg-blue-600 mt-8 shadow-xl shadow-slate-900/20 transition-all active:scale-95">OTORISASI</button>
+            </form>
+          </div>
+          <p className="text-slate-500 text-xs font-medium mt-8 relative z-10 tracking-widest">© 2026 CONTRACTOR HUB SYSTEM</p>
+        </div>
+      )}
+
+      {appState === 'admin' && <AdminPortal user={currentUser} onLogout={handleLogout} setToast={showToast} firestoreUser={firestoreUser} />}
+      {appState === 'emp_dashboard' && <EmployeeDashboard user={currentUser} onNavigate={(path) => setAppState('emp_' + path)} onLogout={handleLogout} />}
+      {appState === 'emp_presensi' && <EmployeePresensi user={currentUser} setToast={showToast} onBack={() => setAppState('emp_dashboard')} />}
+      {appState === 'emp_perizinan' && <EmployeeForm title="Pengajuan Izin" type="izin" user={currentUser} setToast={showToast} onBack={() => setAppState('emp_dashboard')} />}
+      {appState === 'emp_laporan' && <EmployeeForm title="Laporan Log Harian" type="laporan" user={currentUser} setToast={showToast} onBack={() => setAppState('emp_dashboard')} />}
+    </div>
+  );
+}
